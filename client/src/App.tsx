@@ -23,18 +23,18 @@ function App() {
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
-  // 筛选和排序
+  // Filter and sort
   const filteredAndSortedMatches = useMemo(() => {
     let filtered = [...matches];
 
-    // 应用筛选
+    // Apply filter
     if (filter === "signals") {
       filtered = filtered.filter((m) => m.signals.length > 0);
     } else if (filter === "live") {
       filtered = filtered.filter((m) => m.status === "LIVE");
     }
 
-    // 按开始时间排序（从早到晚）
+    // Sort by start time (earliest to latest)
     return filtered.sort((a, b) => {
       const timeA = a.startTime ? new Date(a.startTime).getTime() : 0;
       const timeB = b.startTime ? new Date(b.startTime).getTime() : 0;
@@ -42,7 +42,7 @@ function App() {
     });
   }, [matches, filter]);
 
-  // 按日期分组(使用中国时区 UTC+8)
+  // Group by date (using China Time Zone UTC+8)
   const groupedMatches = useMemo(() => {
     const groups: {
       date: string;
@@ -52,7 +52,7 @@ function App() {
     }[] = [];
     const dateMap = new Map<string, UnifiedMatch[]>();
 
-    // 辅助函数:将时间戳转换为中国时区的日期字符串 (YYYY-MM-DD)
+    // Helper: convert timestamp to China timezone date string (YYYY-MM-DD)
     const toChinaDateKey = (timestamp: string | number): string => {
       const date = new Date(timestamp);
       const formatter = new Intl.DateTimeFormat("zh-CN", {
@@ -68,7 +68,7 @@ function App() {
       return `${year}-${month}-${day}`;
     };
 
-    // 获取中国当前日期
+    // Get current date in China
     const getChinaToday = (): string => {
       return toChinaDateKey(Date.now());
     };
@@ -76,7 +76,7 @@ function App() {
     filteredAndSortedMatches.forEach((match) => {
       if (!match.startTime) return;
 
-      // 使用中国时区进行分组
+      // Group using China timezone
       const dateKey = toChinaDateKey(match.startTime);
 
       if (!dateMap.has(dateKey)) {
@@ -85,38 +85,38 @@ function App() {
       dateMap.get(dateKey)!.push(match);
     });
 
-    // 转换为数组并排序
+    // Convert to array and sort
     const chinaToday = getChinaToday();
     const chinaTomorrow = (() => {
       const now = Date.now();
-      const tomorrow = now + 24 * 60 * 60 * 1000; // 加一天
+      const tomorrow = now + 24 * 60 * 60 * 1000; // Add one day
       return toChinaDateKey(tomorrow);
     })();
 
     dateMap.forEach((matches, dateKey) => {
-      // 检查这个日期的所有比赛是否都已结束
+      // Check if all matches for this date are finished
       const allFinished = matches.every((m) => m.status === "FINAL");
 
       let displayDate = "";
       if (dateKey === chinaToday) {
-        displayDate = "今天";
+        displayDate = "Today";
       } else if (dateKey === chinaTomorrow) {
-        displayDate = "明天";
+        displayDate = "Tomorrow";
       } else {
-        // 使用中国时区获取星期几
+        // Get the day of the week using China timezone
         const [year, month, day] = dateKey.split("-").map(Number);
         const date = new Date(year, month - 1, day);
         const weekdays = [
-          "周日",
-          "周一",
-          "周二",
-          "周三",
-          "周四",
-          "周五",
-          "周六",
+          "Sun",
+          "Mon",
+          "Tue",
+          "Wed",
+          "Thu",
+          "Fri",
+          "Sat",
         ];
         const weekday = weekdays[date.getDay()];
-        displayDate = `${month}月${day}日 ${weekday}`;
+        displayDate = `${month}/${day} ${weekday}`;
       }
 
       groups.push({
@@ -127,13 +127,13 @@ function App() {
       });
     });
 
-    // 按日期排序，并过滤掉所有比赛都已结束的日期组
+    // Sort by date and filter out groups where all matches are finished
     return groups
-      .filter((group) => !group.allFinished) // 移除所有比赛都结束的日期
+      .filter((group) => !group.allFinished) // Remove dates where all matches ended
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [filteredAndSortedMatches]);
 
-  // 统计数据
+  // Statistics
   const stats = useMemo(() => {
     const liveCount = matches.filter((m) => m.status === "LIVE").length;
     const withSignals = matches.filter((m) => m.signals.length > 0).length;
@@ -155,98 +155,97 @@ function App() {
   }, [matches]);
 
   useEffect(() => {
-    console.log("[App] 🚀 初始化 WebSocket 连接...");
+    console.log("[App] 🚀 Initializing WebSocket connection...");
 
-    // 连接 WebSocket (使用 Vite 代理,不指定完整 URL)
-    // 在开发环境下,Vite 会自动代理到 localhost:3000
+    // Connect WebSocket
     websocketService.connect();
 
-    // 定义回调函数（用于清理）
+    // Define callback functions (for cleanup)
     const handleConnect = () => {
-      console.log("[App] ✅ WebSocket 已连接");
+      console.log("[App] ✅ WebSocket connected");
       setConnected(true);
-      // 连接成功后立即订阅
+      // Subscribe immediately after successful connection
       websocketService.subscribe();
     };
 
     const handleDisconnect = () => {
-      console.log("[App] ❌ WebSocket 已断开");
+      console.log("[App] ❌ WebSocket disconnected");
       setConnected(false);
     };
 
     const handleMatchesUpdate = (data: any) => {
       const now = new Date().toLocaleTimeString();
       console.log(
-        `[App] 📊 收到比赛更新 (${data.type}):`,
+        `[App] 📊 Received match update (${data.type}):`,
         data.data.length,
-        "场比赛",
+        "matches",
         now,
       );
-      console.log(`[App] 🔍 原始数据:`, data);
+      console.log(`[App] 🔍 Raw data:`, data);
 
-      // 打印所有比赛的价格信息用于调试
+      // Print price info for all matches for debugging
       if (data.data.length > 0) {
-        console.log("[App] 💰 当前所有比赛价格:");
+        console.log("[App] 💰 Current match prices:");
         data.data.forEach((match: any, index: number) => {
           if (match.poly?.homePrice && match.poly?.awayPrice) {
             console.log(
-              `  ${index + 1}. ${match.homeTeam.name} $${match.poly.homePrice.toFixed(4)} vs ${match.awayTeam.name} $${match.poly.awayPrice.toFixed(4)} (更新: ${new Date(match.lastUpdate).toLocaleTimeString()})`,
+              `  ${index + 1}. ${match.homeTeam.name} $${match.poly.homePrice.toFixed(4)} vs ${match.awayTeam.name} $${match.poly.awayPrice.toFixed(4)} (Updated: ${new Date(match.lastUpdate).toLocaleTimeString()})`,
             );
           }
         });
       }
 
-      // 直接使用后端发送的数据（已经是深度克隆的新对象）
-      console.log(`[App] ⚡ 更新 React 状态，数据长度: ${data.data.length}`);
+      // Directly use the data sent by the backend (already a deep-cloned new object)
+      console.log(`[App] ⚡ Updating React state, data length: ${data.data.length}`);
 
-      // 使用函数式更新确保触发重渲染
+      // Use functional update to ensure re-render
       setMatches(() => data.data);
       setLoading(false);
 
-      console.log(`[App] ✅ setMatches 调用完成，触发重渲染`);
+      console.log(`[App] ✅ setMatches called, triggering re-render`);
     };
 
     const handleSignalAlert = (data: any) => {
       console.log(
-        `[App] 🚨 套利信号告警 - ${data.matchId}:`,
+        `[App] 🚨 Arbitrage signal alert - ${data.matchId}:`,
         data.signals.length,
-        "个信号",
+        "signals",
       );
-      // 可以在这里添加通知逻辑
+      // You can add notification logic here
     };
 
-    // 注册监听器
+    // Register listeners
     websocketService.onConnect(handleConnect);
     websocketService.onDisconnect(handleDisconnect);
     websocketService.onMatchesUpdate(handleMatchesUpdate);
     websocketService.onSignalAlert(handleSignalAlert);
 
-    // 检查初始连接状态（防止监听器注册前已经连接）
+    // Check initial connection state (in case it connected before listeners registered)
     if (websocketService.isConnected()) {
-      console.log("[App] 🔗 WebSocket 已经处于连接状态");
+      console.log("[App] 🔗 WebSocket is already connected");
       setConnected(true);
       websocketService.subscribe();
     }
 
-    // 清理：移除事件监听器，但保持连接
+    // Cleanup: remove event listeners but keep connection alive
     return () => {
-      console.log("[App] 🧹 清理 WebSocket 监听器");
+      console.log("[App] 🧹 Cleaning up WebSocket listeners");
       websocketService.off("connect", handleConnect);
       websocketService.off("disconnect", handleDisconnect);
       websocketService.off("matchesUpdate", handleMatchesUpdate);
       websocketService.off("signalAlert", handleSignalAlert);
-      // 注意：不要断开连接，让 WebSocket 保持活跃
+      // Note: Do not disconnect, keep WebSocket active
     };
   }, []);
 
   const handleRefresh = async () => {
     setLoading(true);
     try {
-      console.log("[App] 🔄 手动刷新比赛数据...");
+      console.log("[App] 🔄 Manually refreshing match data...");
       const data = await fetchMatches();
       setMatches(data);
     } catch (error) {
-      console.error("[App] ❌ 刷新失败:", error);
+      console.error("[App] ❌ Refresh failed:", error);
     } finally {
       setLoading(false);
     }
@@ -272,21 +271,21 @@ function App() {
             <div className="flex items-center gap-8">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-blue-400" />
-                <span className="text-gray-400 text-sm">监控</span>
+                <span className="text-gray-400 text-sm">Monitored</span>
                 <span className="text-white font-bold text-lg">
                   {stats.total}
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                <span className="text-gray-400 text-sm">进行中</span>
+                <span className="text-gray-400 text-sm">Live</span>
                 <span className="text-green-400 font-bold text-lg">
                   {stats.live}
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-yellow-400" />
-                <span className="text-gray-400 text-sm">有信号</span>
+                <span className="text-gray-400 text-sm">With Signals</span>
                 <span className="text-yellow-400 font-bold text-lg">
                   {stats.withSignals}
                 </span>
@@ -294,13 +293,13 @@ function App() {
               <div className="h-6 w-px bg-white/10" />
               <div className="flex items-center gap-4 text-sm">
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-500">买入</span>
+                  <span className="text-gray-500">Buy</span>
                   <span className="text-green-400 font-bold">
                     {stats.buySignals}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-500">卖出</span>
+                  <span className="text-gray-500">Sell</span>
                   <span className="text-red-400 font-bold">
                     {stats.sellSignals}
                   </span>
@@ -319,7 +318,7 @@ function App() {
                       : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  全部 <span className="ml-1 opacity-60">{matches.length}</span>
+                  All <span className="ml-1 opacity-60">{matches.length}</span>
                 </button>
                 <button
                   onClick={() => setFilter("signals")}
@@ -329,7 +328,7 @@ function App() {
                       : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  有信号{" "}
+                  Signals{" "}
                   <span className="ml-1 opacity-60">{stats.withSignals}</span>
                 </button>
                 <button
@@ -340,7 +339,7 @@ function App() {
                       : "text-gray-400 hover:text-white"
                   }`}
                 >
-                  进行中 <span className="ml-1 opacity-60">{stats.live}</span>
+                  Live <span className="ml-1 opacity-60">{stats.live}</span>
                 </button>
               </div>
 
@@ -351,7 +350,7 @@ function App() {
                 className="flex items-center gap-2 px-4 py-2 bg-purple-600/10 hover:bg-purple-600/20 text-purple-400 rounded-lg text-sm font-medium transition-all border border-purple-500/20"
               >
                 <Info className="w-4 h-4" />
-                <span>策略说明</span>
+                <span>Strategy Guide</span>
               </button>
 
               <button
@@ -359,7 +358,7 @@ function App() {
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 rounded-lg text-sm font-medium transition-all border border-blue-500/20"
               >
                 <HistoryIcon className="w-4 h-4" />
-                <span>交易历史</span>
+                <span>Trade History</span>
               </button>
 
               <div className="flex items-center gap-2 px-3 py-2 bg-white/5 rounded-lg">
@@ -367,7 +366,7 @@ function App() {
                   className={`w-2 h-2 rounded-full ${connected ? "bg-green-400" : "bg-red-400"}`}
                 />
                 <span className="text-xs text-gray-400">
-                  {connected ? "已连接" : "未连接"}
+                  {connected ? "Connected" : "Disconnected"}
                 </span>
               </div>
 
@@ -376,7 +375,7 @@ function App() {
                 disabled={loading}
                 className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50"
               >
-                {loading ? "刷新中..." : "🔄"}
+                {loading ? "Refreshing..." : "🔄"}
               </button>
             </div>
           </div>
@@ -390,7 +389,7 @@ function App() {
           {loading ? (
             <div className="text-center text-gray-500 py-20">
               <div className="inline-block w-8 h-8 border-4 border-purple-500/20 border-t-purple-500 rounded-full animate-spin mb-4" />
-              <div>加载比赛数据中...</div>
+              <div>Loading match data...</div>
             </div>
           ) : groupedMatches.length > 0 ? (
             groupedMatches.map((group) => (
@@ -404,7 +403,7 @@ function App() {
                         {group.displayDate}
                       </div>
                       <div className="text-xs text-gray-400">
-                        共 {group.matches.length} 场比赛
+                        {group.matches.length} matches
                       </div>
                     </div>
                   </div>
@@ -424,16 +423,16 @@ function App() {
               <div className="text-4xl mb-4">🏀</div>
               <div className="text-lg mb-2">
                 {filter !== "all"
-                  ? "没有符合筛选条件的比赛"
+                  ? "No matches match the current filter"
                   : matches.length > 0 &&
                       matches.every((m) => m.status === "FINAL")
-                    ? "今日比赛已全部结束"
-                    : "暂无进行中或未开始的比赛"}
+                    ? "All matches today have finished"
+                    : "No live or upcoming matches"}
               </div>
               {matches.length > 0 &&
                 matches.every((m) => m.status === "FINAL") && (
                   <div className="text-sm text-gray-600">
-                    已完成 {matches.length} 场比赛，等待明日赛程更新
+                    Completed {matches.length} matches, waiting for tomorrow's schedule
                   </div>
                 )}
             </div>
@@ -450,7 +449,7 @@ function App() {
         <div className="sticky top-0 bg-surface/95 backdrop-blur-sm border-b border-white/10 p-6 flex items-center justify-between z-10">
           <div className="flex items-center gap-3">
             <Info className="w-6 h-6 text-purple-400" />
-            <h2 className="text-xl font-bold text-white">策略说明</h2>
+            <h2 className="text-xl font-bold text-white">Strategy Guide</h2>
           </div>
           <button
             onClick={() => setIsGuideOpen(false)}
@@ -463,7 +462,7 @@ function App() {
           <Suspense
             fallback={
               <div className="text-gray-400 text-center py-4">
-                加载策略说明...
+                Loading strategy guide...
               </div>
             }
           >
