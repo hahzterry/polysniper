@@ -15,6 +15,17 @@ import { Info, X, History as HistoryIcon } from "lucide-react";
 
 type FilterType = "all" | "signals" | "live";
 
+// Define types for WebSocket payloads to avoid 'any'
+interface MatchesUpdatePayload {
+  type: string;
+  data: UnifiedMatch[];
+}
+
+interface SignalAlertPayload {
+  matchId: string;
+  signals: any[];
+}
+
 function App() {
   const [matches, setMatches] = useState<UnifiedMatch[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,14 +38,12 @@ function App() {
   const filteredAndSortedMatches = useMemo(() => {
     let filtered = [...matches];
 
-    // Apply filter
     if (filter === "signals") {
       filtered = filtered.filter((m) => m.signals.length > 0);
     } else if (filter === "live") {
       filtered = filtered.filter((m) => m.status === "LIVE");
     }
 
-    // Sort by start time (earliest to latest)
     return filtered.sort((a, b) => {
       const timeA = a.startTime ? new Date(a.startTime).getTime() : 0;
       const timeB = b.startTime ? new Date(b.startTime).getTime() : 0;
@@ -42,7 +51,7 @@ function App() {
     });
   }, [matches, filter]);
 
-  // Group by date (using China Time Zone UTC+8)
+  // Group by date (using local timezone instead of hardcoded China timezone)
   const groupedMatches = useMemo(() => {
     const groups: {
       date: string;
@@ -52,69 +61,39 @@ function App() {
     }[] = [];
     const dateMap = new Map<string, UnifiedMatch[]>();
 
-    // Helper: convert timestamp to China timezone date string (YYYY-MM-DD)
-    const toChinaDateKey = (timestamp: string | number): string => {
+    const toLocalDateKey = (timestamp: string | number): string => {
       const date = new Date(timestamp);
-      const formatter = new Intl.DateTimeFormat("zh-CN", {
-        timeZone: "Asia/Shanghai",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      });
-      const parts = formatter.formatToParts(date);
-      const year = parts.find((p) => p.type === "year")?.value || "";
-      const month = parts.find((p) => p.type === "month")?.value || "";
-      const day = parts.find((p) => p.type === "day")?.value || "";
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
       return `${year}-${month}-${day}`;
     };
 
-    // Get current date in China
-    const getChinaToday = (): string => {
-      return toChinaDateKey(Date.now());
-    };
+    const getToday = (): string => toLocalDateKey(Date.now());
+    const getTomorrow = (): string => toLocalDateKey(Date.now() + 24 * 60 * 60 * 1000);
 
     filteredAndSortedMatches.forEach((match) => {
       if (!match.startTime) return;
-
-      // Group using China timezone
-      const dateKey = toChinaDateKey(match.startTime);
-
-      if (!dateMap.has(dateKey)) {
-        dateMap.set(dateKey, []);
-      }
+      const dateKey = toLocalDateKey(match.startTime);
+      if (!dateMap.has(dateKey)) dateMap.set(dateKey, []);
       dateMap.get(dateKey)!.push(match);
     });
 
-    // Convert to array and sort
-    const chinaToday = getChinaToday();
-    const chinaTomorrow = (() => {
-      const now = Date.now();
-      const tomorrow = now + 24 * 60 * 60 * 1000; // Add one day
-      return toChinaDateKey(tomorrow);
-    })();
+    const today = getToday();
+    const tomorrow = getTomorrow();
 
     dateMap.forEach((matches, dateKey) => {
-      // Check if all matches for this date are finished
       const allFinished = matches.every((m) => m.status === "FINAL");
 
       let displayDate = "";
-      if (dateKey === chinaToday) {
+      if (dateKey === today) {
         displayDate = "Today";
-      } else if (dateKey === chinaTomorrow) {
+      } else if (dateKey === tomorrow) {
         displayDate = "Tomorrow";
       } else {
-        // Get the day of the week using China timezone
         const [year, month, day] = dateKey.split("-").map(Number);
         const date = new Date(year, month - 1, day);
-        const weekdays = [
-          "Sun",
-          "Mon",
-          "Tue",
-          "Wed",
-          "Thu",
-          "Fri",
-          "Sat",
-        ];
+        const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         const weekday = weekdays[date.getDay()];
         displayDate = `${month}/${day} ${weekday}`;
       }
@@ -127,9 +106,8 @@ function App() {
       });
     });
 
-    // Sort by date and filter out groups where all matches are finished
     return groups
-      .filter((group) => !group.allFinished) // Remove dates where all matches ended
+      .filter((group) => !group.allFinished)
       .sort((a, b) => a.date.localeCompare(b.date));
   }, [filteredAndSortedMatches]);
 
@@ -156,15 +134,11 @@ function App() {
 
   useEffect(() => {
     console.log("[App] 🚀 Initializing WebSocket connection...");
-
-    // Connect WebSocket
     websocketService.connect();
 
-    // Define callback functions (for cleanup)
     const handleConnect = () => {
       console.log("[App] ✅ WebSocket connected");
       setConnected(true);
-      // Subscribe immediately after successful connection
       websocketService.subscribe();
     };
 
@@ -173,68 +147,37 @@ function App() {
       setConnected(false);
     };
 
-    const handleMatchesUpdate = (data: any) => {
-      const now = new Date().toLocaleTimeString();
-      console.log(
-        `[App] 📊 Received match update (${data.type}):`,
-        data.data.length,
-        "matches",
-        now,
-      );
-      console.log(`[App] 🔍 Raw data:`, data);
-
-      // Print price info for all matches for debugging
-      if (data.data.length > 0) {
-        console.log("[App] 💰 Current match prices:");
-        data.data.forEach((match: any, index: number) => {
-          if (match.poly?.homePrice && match.poly?.awayPrice) {
-            console.log(
-              `  ${index + 1}. ${match.homeTeam.name} $${match.poly.homePrice.toFixed(4)} vs ${match.awayTeam.name} $${match.poly.awayPrice.toFixed(4)} (Updated: ${new Date(match.lastUpdate).toLocaleTimeString()})`,
-            );
-          }
-        });
-      }
-
-      // Directly use the data sent by the backend (already a deep-cloned new object)
-      console.log(`[App] ⚡ Updating React state, data length: ${data.data.length}`);
-
-      // Use functional update to ensure re-render
-      setMatches(() => data.data);
+    // 🔥 Removed all console.logs from this hot path for performance
+    const handleMatchesUpdate = (data: MatchesUpdatePayload) => {
+      setMatches(data.data);
       setLoading(false);
-
-      console.log(`[App] ✅ setMatches called, triggering re-render`);
     };
 
-    const handleSignalAlert = (data: any) => {
+    const handleSignalAlert = (data: SignalAlertPayload) => {
       console.log(
         `[App] 🚨 Arbitrage signal alert - ${data.matchId}:`,
         data.signals.length,
         "signals",
       );
-      // You can add notification logic here
     };
 
-    // Register listeners
     websocketService.onConnect(handleConnect);
     websocketService.onDisconnect(handleDisconnect);
     websocketService.onMatchesUpdate(handleMatchesUpdate);
     websocketService.onSignalAlert(handleSignalAlert);
 
-    // Check initial connection state (in case it connected before listeners registered)
     if (websocketService.isConnected()) {
       console.log("[App] 🔗 WebSocket is already connected");
       setConnected(true);
       websocketService.subscribe();
     }
 
-    // Cleanup: remove event listeners but keep connection alive
     return () => {
       console.log("[App] 🧹 Cleaning up WebSocket listeners");
       websocketService.off("connect", handleConnect);
       websocketService.off("disconnect", handleDisconnect);
       websocketService.off("matchesUpdate", handleMatchesUpdate);
       websocketService.off("signalAlert", handleSignalAlert);
-      // Note: Do not disconnect, keep WebSocket active
     };
   }, []);
 
@@ -250,6 +193,22 @@ function App() {
       setLoading(false);
     }
   };
+
+  // 🧹 Cleaned up empty state logic
+  const getEmptyStateMessage = () => {
+    if (filter === "signals") return "No matches with active signals.";
+    if (filter === "live") return "No live matches right now.";
+    if (matches.length > 0 && matches.every((m) => m.status === "FINAL"))
+      return "All matches for today have finished.";
+    return "No matches available.";
+  };
+
+  // 🧹 Mapped filter buttons to reduce duplication
+  const filterButtons = [
+    { id: "all" as FilterType, label: "All", count: matches.length },
+    { id: "signals" as FilterType, label: "Signals", count: stats.withSignals },
+    { id: "live" as FilterType, label: "Live", count: stats.live },
+  ];
 
   return (
     <div className="min-h-screen bg-background">
@@ -272,37 +231,27 @@ function App() {
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-blue-400" />
                 <span className="text-gray-400 text-sm">Monitored</span>
-                <span className="text-white font-bold text-lg">
-                  {stats.total}
-                </span>
+                <span className="text-white font-bold text-lg">{stats.total}</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
                 <span className="text-gray-400 text-sm">Live</span>
-                <span className="text-green-400 font-bold text-lg">
-                  {stats.live}
-                </span>
+                <span className="text-green-400 font-bold text-lg">{stats.live}</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-yellow-400" />
                 <span className="text-gray-400 text-sm">With Signals</span>
-                <span className="text-yellow-400 font-bold text-lg">
-                  {stats.withSignals}
-                </span>
+                <span className="text-yellow-400 font-bold text-lg">{stats.withSignals}</span>
               </div>
               <div className="h-6 w-px bg-white/10" />
               <div className="flex items-center gap-4 text-sm">
                 <div className="flex items-center gap-2">
                   <span className="text-gray-500">Buy</span>
-                  <span className="text-green-400 font-bold">
-                    {stats.buySignals}
-                  </span>
+                  <span className="text-green-400 font-bold">{stats.buySignals}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-gray-500">Sell</span>
-                  <span className="text-red-400 font-bold">
-                    {stats.sellSignals}
-                  </span>
+                  <span className="text-red-400 font-bold">{stats.sellSignals}</span>
                 </div>
               </div>
             </div>
@@ -310,37 +259,19 @@ function App() {
             {/* Filters & Actions */}
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 bg-white/5 rounded-lg p-1">
-                <button
-                  onClick={() => setFilter("all")}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                    filter === "all"
-                      ? "bg-purple-600 text-white shadow-lg shadow-purple-500/20"
-                      : "text-gray-400 hover:text-white"
-                  }`}
-                >
-                  All <span className="ml-1 opacity-60">{matches.length}</span>
-                </button>
-                <button
-                  onClick={() => setFilter("signals")}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                    filter === "signals"
-                      ? "bg-purple-600 text-white shadow-lg shadow-purple-500/20"
-                      : "text-gray-400 hover:text-white"
-                  }`}
-                >
-                  Signals{" "}
-                  <span className="ml-1 opacity-60">{stats.withSignals}</span>
-                </button>
-                <button
-                  onClick={() => setFilter("live")}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
-                    filter === "live"
-                      ? "bg-purple-600 text-white shadow-lg shadow-purple-500/20"
-                      : "text-gray-400 hover:text-white"
-                  }`}
-                >
-                  Live <span className="ml-1 opacity-60">{stats.live}</span>
-                </button>
+                {filterButtons.map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => setFilter(f.id)}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                      filter === f.id
+                        ? "bg-purple-600 text-white shadow-lg shadow-purple-500/20"
+                        : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    {f.label} <span className="ml-1 opacity-60">{f.count}</span>
+                  </button>
+                ))}
               </div>
 
               <div className="h-8 w-px bg-white/10" />
@@ -373,6 +304,7 @@ function App() {
               <button
                 onClick={handleRefresh}
                 disabled={loading}
+                aria-label="Refresh matches"
                 className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg text-sm font-medium transition-all disabled:opacity-50"
               >
                 {loading ? "Refreshing..." : "🔄"}
@@ -384,7 +316,6 @@ function App() {
 
       {/* Main Content */}
       <div className="max-w-[1920px] mx-auto px-6 py-6">
-        {/* Matches Grid - Grouped by Date */}
         <div className="mb-6 space-y-8">
           {loading ? (
             <div className="text-center text-gray-500 py-20">
@@ -421,14 +352,7 @@ function App() {
           ) : (
             <div className="text-center text-gray-500 py-20">
               <div className="text-4xl mb-4">🏀</div>
-              <div className="text-lg mb-2">
-                {filter !== "all"
-                  ? "No matches match the current filter"
-                  : matches.length > 0 &&
-                      matches.every((m) => m.status === "FINAL")
-                    ? "All matches today have finished"
-                    : "No live or upcoming matches"}
-              </div>
+              <div className="text-lg mb-2">{getEmptyStateMessage()}</div>
               {matches.length > 0 &&
                 matches.every((m) => m.status === "FINAL") && (
                   <div className="text-sm text-gray-600">
@@ -453,6 +377,7 @@ function App() {
           </div>
           <button
             onClick={() => setIsGuideOpen(false)}
+            aria-label="Close guide"
             className="p-2 hover:bg-white/10 rounded-lg transition-all"
           >
             <X className="w-5 h-5 text-gray-400" />
