@@ -1,19 +1,11 @@
 {
   "version": 2,
-  "builds": [
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "rewrites": [
     {
-      "src": "dist/index.cjs",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/socket.io/(.*)",
-      "dest": "dist/index.cjs"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "dist/index.cjs"
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
