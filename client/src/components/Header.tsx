@@ -22,14 +22,13 @@ export function Header() {
 
     updateTime();
 
-    const interval = setInterval(updateTime, 1000);
+    const interval = window.setInterval(updateTime, 1000);
 
-    return () => clearInterval(interval);
+    return () => window.clearInterval(interval);
   }, []);
 
   return (
     <header className="flex flex-col gap-4 border-b border-white/10 py-5 sm:flex-row sm:items-center sm:justify-between sm:py-6">
-      {/* Brand */}
       <div className="flex items-center gap-3">
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-blue-400/20 bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-blue-500/20">
           <Activity className="h-6 w-6 text-white" />
@@ -46,7 +45,6 @@ export function Header() {
         </div>
       </div>
 
-      {/* Live Status and Clock */}
       <div className="flex flex-wrap items-center gap-3 sm:gap-5">
         <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm">
           <Clock className="h-4 w-4 shrink-0 text-cyan-400" />
